@@ -142,7 +142,7 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Future<void> _openFixedPicker(BuildContext context) async {
-    final files = await controller.getLocalAudioFiles();
+    List files = await controller.getLocalAudioFiles();
     if (!mounted) return;
     showModalBottomSheet(
       context: context,
@@ -153,54 +153,65 @@ class _SettingsViewState extends State<SettingsView> {
       ),
       builder: (_) {
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.folder_open),
-                title: const Text('Parcourir mes fichiers...'),
-                onTap: () async {
-                  final res = await FilePicker.platform.pickFiles(
-                    type: FileType.custom,
-                    allowedExtensions: const ['mp3', 'm4a', 'aac'],
-                  );
-                  if (res != null && res.files.single.path != null) {
-                    await controller.pickFixedAudioPath(res.files.single.path!);
-                  }
-                  if (mounted) Navigator.pop(context);
-                },
-              ),
-              const Divider(height: 1),
-              if (files.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Text('Aucun fichier audio local disponible.'),
-                )
-              else
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.all(8),
-                    itemCount: files.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, i) {
-                      final f = files[i];
-                      final name = f.uri.pathSegments.isNotEmpty
-                          ? f.uri.pathSegments.last
-                          : f.path.split('/').last;
-                      return ListTile(
-                        leading: const Icon(Icons.music_note),
-                        title: Text(name,
-                            maxLines: 2, overflow: TextOverflow.ellipsis),
-                        onTap: () async {
-                          await controller.pickFixedAudioPath(f.path);
-                          if (mounted) Navigator.pop(context);
-                        },
+          child: StatefulBuilder(
+            builder: (context, setModalState) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.folder_open),
+                    title: const Text('Parcourir mes fichiers...'),
+                    onTap: () async {
+                      final res = await FilePicker.platform.pickFiles(
+                        type: FileType.custom,
+                        allowedExtensions: const ['mp3', 'm4a', 'aac'],
                       );
+                      if (res != null && res.files.single.path != null) {
+                        // Importer physiquement dans le dossier audio, puis rafraîchir la liste
+                        final dest = await controller
+                            .importSingleAudioFile(res.files.single.path!);
+                        if (dest != null) {
+                          files = await controller.getLocalAudioFiles();
+                          setModalState(() {});
+                          // Option: définir la piste fixe immédiatement
+                          await controller.pickFixedAudioPath(dest);
+                        }
+                      }
                     },
                   ),
-                ),
-            ],
+                  const Divider(height: 1),
+                  if (files.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Text('Aucun fichier audio local disponible.'),
+                    )
+                  else
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.all(8),
+                        itemCount: files.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final f = files[i];
+                          final name = f.uri.pathSegments.isNotEmpty
+                              ? f.uri.pathSegments.last
+                              : f.path.split('/').last;
+                          return ListTile(
+                            leading: const Icon(Icons.music_note),
+                            title: Text(name,
+                                maxLines: 2, overflow: TextOverflow.ellipsis),
+                            onTap: () async {
+                              await controller.pickFixedAudioPath(f.path);
+                              if (mounted) Navigator.pop(context);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         );
       },

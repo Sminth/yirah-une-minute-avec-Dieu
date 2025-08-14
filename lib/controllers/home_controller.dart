@@ -263,6 +263,8 @@ class HomeController with ChangeNotifier {
     } else {
       // Try to fetch random French verses from public APIs, with local fallback
       _log('Starting random verse rotation (45s)');
+      // Reflect new mode immediately in the UI
+      notifyListeners();
       _fetchRandomFrVerse();
       _verseRotator = Timer.periodic(const Duration(seconds: 45), (_) {
         _log('Timer tick: fetching next random verse');
@@ -274,14 +276,17 @@ class HomeController with ChangeNotifier {
   void setVerseMode(VerseMode mode) {
     _log('setVerseMode: ' + mode.toString());
     verseMode = mode;
+    // Notify immediately so Settings UI updates without waiting for network/disk
+    notifyListeners();
     _savePrefs();
     _applyVerseMode();
   }
 
   Future<void> setAudioMode({required bool random}) async {
     audioRandom = random;
-    await _savePrefs();
+    // Notify immediately; persist in background to avoid UI lag
     notifyListeners();
+    await _savePrefs();
   }
 
   Future<void> pickFixedAudioPath(String path) async {
@@ -301,73 +306,7 @@ class HomeController with ChangeNotifier {
 
   Future<void> _fetchRandomFrVerse() async {
     _log('fetchRandomFrVerse: start');
-    // Priority 1: Try curated random refs via jsDelivr Bible API (fr-lsg)
-    final List<Map<String, dynamic>> cdnRefs = [
-      {'bookSlug': 'psaumes', 'book': 'Psaume', 'chapter': 23, 'verse': 1},
-      {'bookSlug': 'psaumes', 'book': 'Psaume', 'chapter': 27, 'verse': 1},
-      {'bookSlug': 'psaumes', 'book': 'Psaume', 'chapter': 91, 'verse': 1},
-      {'bookSlug': 'psaumes', 'book': 'Psaume', 'chapter': 121, 'verse': 1},
-      {'bookSlug': 'proverbes', 'book': 'Proverbes', 'chapter': 3, 'verse': 5},
-      {'bookSlug': 'proverbes', 'book': 'Proverbes', 'chapter': 3, 'verse': 6},
-      {'bookSlug': 'jean', 'book': 'Jean', 'chapter': 3, 'verse': 16},
-      {'bookSlug': 'jean', 'book': 'Jean', 'chapter': 14, 'verse': 6},
-      {'bookSlug': 'romains', 'book': 'Romains', 'chapter': 8, 'verse': 28},
-      {'bookSlug': 'romains', 'book': 'Romains', 'chapter': 12, 'verse': 2},
-      {
-        'bookSlug': 'philippiens',
-        'book': 'Philippiens',
-        'chapter': 4,
-        'verse': 6
-      },
-      {
-        'bookSlug': 'philippiens',
-        'book': 'Philippiens',
-        'chapter': 4,
-        'verse': 7
-      },
-      {'bookSlug': 'esaie', 'book': 'Ésaïe', 'chapter': 41, 'verse': 10},
-      {'bookSlug': 'jeremie', 'book': 'Jérémie', 'chapter': 29, 'verse': 11},
-      {'bookSlug': 'matthieu', 'book': 'Matthieu', 'chapter': 11, 'verse': 28},
-      {'bookSlug': 'psaumes', 'book': 'Psaume', 'chapter': 46, 'verse': 1},
-      {'bookSlug': 'hebreux', 'book': 'Hébreux', 'chapter': 11, 'verse': 1},
-      {
-        'bookSlug': '1-corinthiens',
-        'book': '1 Corinthiens',
-        'chapter': 13,
-        'verse': 13
-      },
-    ];
-    cdnRefs.shuffle();
-    for (final r in cdnRefs) {
-      try {
-        final String url =
-            'https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/fr-lsg/books/${r['bookSlug']}/chapters/${r['chapter']}/verses/${r['verse']}.json';
-        _log('cdn try: ' + url);
-        final http.Response resp = await http.get(Uri.parse(url), headers: {
-          'Accept': 'application/json'
-        }).timeout(const Duration(seconds: 6));
-        _log('cdn status: ' + resp.statusCode.toString());
-        if (resp.statusCode == 200 && resp.body.isNotEmpty) {
-          final dynamic decoded = convert.json.decode(resp.body);
-          String? text;
-          if (decoded is Map<String, dynamic>) {
-            text = _stringOrNull(decoded['text']) ??
-                _stringOrNull(decoded['content']);
-          }
-          if (text != null && text.trim().isNotEmpty) {
-            verseRef = "${r['book']} ${r['chapter']}:${r['verse']}";
-            verseText = text.trim();
-            _log('cdn success → ' + verseRef);
-            notifyListeners();
-            return;
-          }
-        }
-      } catch (e) {
-        _log('cdn error: ' + e.toString());
-      }
-    }
-
-    // Priority 1.5: API.Bible (authenticated)
+    // Priority unique: API.Bible (authentifié)
     try {
       final bool ok = await _tryApiBibleRandom();
       if (ok) return;
@@ -375,55 +314,7 @@ class HomeController with ChangeNotifier {
       _log('api.bible error high-level: ' + e.toString());
     }
 
-    // Multiple candidate endpoints (some legacy) to improve resilience
-    final List<Uri> candidates = <Uri>[
-      // Legacy GetBible JSONP random (Louis Segond). Often returns JSONP wrapper
-      Uri.parse('https://getbible.net/json?passage=random&version=ls'),
-      Uri.parse('https://getbible.net/json?passage=random&v=ls'),
-      Uri.parse('https://getbible.net/json?random=1&version=ls'),
-      // Additional LSG1910 variants
-      Uri.parse('https://getbible.net/json?random=1&version=ls1910'),
-      Uri.parse('https://getbible.net/json?random=1&v=ls1910'),
-      // Attempt newer v2 style endpoint for LSG 1910 and aliases
-      Uri.parse('https://getbible.net/v2/ls1910/random.json'),
-      Uri.parse('https://getbible.net/v2/ls/random.json'),
-      Uri.parse('https://getbible.net/v2/lsg/random.json'),
-    ];
-
-    for (final uri in candidates) {
-      try {
-        _log('getbible try: ' + uri.toString());
-        final http.Response resp = await http.get(uri, headers: {
-          'Accept': 'application/json, text/javascript;q=0.9, */*;q=0.8',
-          'User-Agent': 'one_minute_app/1.0'
-        }).timeout(const Duration(seconds: 10));
-        _log('getbible status: ' + resp.statusCode.toString());
-        if (resp.statusCode != 200 || resp.body.isEmpty) continue;
-
-        final Map<String, dynamic>? parsed = _parseVersePayload(resp.body);
-        if (parsed == null) {
-          _log('parse failed for: ' + uri.toString());
-          continue;
-        }
-
-        final String? ref = parsed['ref'] as String?;
-        final String? text = parsed['text'] as String?;
-        if (ref != null &&
-            ref.trim().isNotEmpty &&
-            text != null &&
-            text.trim().isNotEmpty) {
-          verseRef = ref.trim();
-          verseText = text.trim();
-          _log('getbible success → ' + verseRef);
-          notifyListeners();
-          return;
-        }
-      } catch (e) {
-        _log('getbible error: ' + e.toString());
-      }
-    }
-
-    // If all endpoints failed, rotate locally as a graceful fallback
+    // Repli local si API.Bible échoue
     _log('all endpoints failed → fallback local');
     _rotateLocalFrVerse();
   }
@@ -551,90 +442,7 @@ class HomeController with ChangeNotifier {
     return false;
   }
 
-  Map<String, dynamic>? _parseVersePayload(String body) {
-    // Try straight JSON first
-    Map<String, dynamic>? data;
-    try {
-      final dynamic decoded = convert.json.decode(body);
-      if (decoded is Map<String, dynamic>) {
-        data = decoded;
-      } else if (decoded is List && decoded.isNotEmpty) {
-        final first = decoded.first;
-        if (first is Map<String, dynamic>) data = first;
-      }
-    } catch (_) {
-      // Try to strip JSONP wrapper like callback(...)
-      try {
-        final int l = body.indexOf('(');
-        final int r = body.lastIndexOf(')');
-        if (l != -1 && r != -1 && r > l) {
-          final String inner = body.substring(l + 1, r);
-          final dynamic decoded = convert.json.decode(inner);
-          if (decoded is Map<String, dynamic>) {
-            data = decoded;
-          } else if (decoded is List && decoded.isNotEmpty) {
-            final first = decoded.first;
-            if (first is Map<String, dynamic>) data = first;
-          }
-        }
-      } catch (_) {}
-    }
-
-    if (data == null) return null;
-
-    // Shape 1: Unified with direct text and reference
-    if (data.containsKey('text') && data.containsKey('reference')) {
-      final String? text = _stringOrNull(data['text']);
-      final String? reference = _stringOrNull(data['reference']);
-      if (text != null && reference != null) {
-        _log('parsed shape1 (text/reference)');
-        return {'ref': reference, 'text': text};
-      }
-    }
-
-    // Shape 2: getbible legacy JSON: { book: [ { book_name, chapter_nr, chapter: { '16': { verse: '16', text: '...' } } } ] }
-    if (data.containsKey('book') &&
-        data['book'] is List &&
-        (data['book'] as List).isNotEmpty) {
-      final Map<String, dynamic> b =
-          Map<String, dynamic>.from((data['book'] as List).first as Map);
-      final String? bookName = _stringOrNull(b['book_name']);
-      final String? chapterNr = _stringOrNull(b['chapter_nr']);
-      if (b['chapter'] is Map) {
-        final Map<String, dynamic> chapterMap =
-            Map<String, dynamic>.from(b['chapter'] as Map);
-        if (chapterMap.isNotEmpty) {
-          final String firstKey = chapterMap.keys.first.toString();
-          final Map<String, dynamic> firstVerse =
-              Map<String, dynamic>.from(chapterMap[firstKey] as Map);
-          final String? verseTextLocal = _stringOrNull(firstVerse['text']);
-          final String? verseNr = _stringOrNull(firstVerse['verse']);
-          if (bookName != null && chapterNr != null && verseTextLocal != null) {
-            final String ref = verseNr == null || verseNr.isEmpty
-                ? '$bookName $chapterNr'
-                : '$bookName $chapterNr:$verseNr';
-            _log('parsed shape2 (legacy)');
-            return {'ref': ref, 'text': verseTextLocal};
-          }
-        }
-      }
-    }
-
-    // Shape 3: v2 possible fields: { book, chapter, verse, text }
-    final String? text3 = _stringOrNull(data['text']);
-    final String? book3 = _stringOrNull(data['book']);
-    final String? chapter3 = _stringOrNull(data['chapter']);
-    final String? verse3 = _stringOrNull(data['verse']);
-    if (text3 != null && book3 != null && chapter3 != null) {
-      final String ref = verse3 == null || verse3.isEmpty
-          ? '$book3 $chapter3'
-          : '$book3 $chapter3:$verse3';
-      _log('parsed shape3 (v2)');
-      return {'ref': ref, 'text': text3};
-    }
-
-    return null;
-  }
+  // Removed legacy parsers now that we exclusively use API.Bible
 
   String? _stringOrNull(dynamic v) => v is String ? v : v?.toString();
 
@@ -810,6 +618,33 @@ class HomeController with ChangeNotifier {
       } catch (_) {}
     }
     return imported;
+  }
+
+  Future<String?> importSingleAudioFile(String sourcePath) async {
+    try {
+      final Directory appDir = await getApplicationSupportDirectory();
+      final Directory audioDir = Directory('${appDir.path}/audio');
+      if (!await audioDir.exists()) {
+        await audioDir.create(recursive: true);
+      }
+      final File src = File(sourcePath);
+      if (!await src.exists()) return null;
+      final String name = src.path.split('/').last;
+      final int dot = name.lastIndexOf('.');
+      final String base = dot > 0 ? name.substring(0, dot) : name;
+      final String ext = dot > 0 ? name.substring(dot) : '';
+      String candidate = '${audioDir.path}/$name';
+      int i = 1;
+      while (await File(candidate).exists()) {
+        candidate = '${audioDir.path}/$base ($i)$ext';
+        i++;
+      }
+      final File dest = File(candidate);
+      await src.copy(dest.path);
+      return dest.path;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> playFile(File f) async {
