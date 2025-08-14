@@ -258,7 +258,7 @@ class _HomeViewState extends State<HomeView> {
                       },
                       onDismissed: (_) async {
                         await controller.deleteLocalAudioFileAtPath(f.path);
-                        if (mounted) setState(() {});
+                        if (mounted) Navigator.pop(context);
                       },
                       child: ListTile(
                         leading: Icon(
@@ -308,7 +308,7 @@ class _HomeViewState extends State<HomeView> {
                                 if (confirmed) {
                                   await controller
                                       .deleteLocalAudioFileAtPath(f.path);
-                                  if (mounted) setState(() {});
+                                  if (mounted) Navigator.pop(context);
                                 }
                               },
                             ),

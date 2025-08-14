@@ -197,14 +197,87 @@ class _SettingsViewState extends State<SettingsView> {
                           final name = f.uri.pathSegments.isNotEmpty
                               ? f.uri.pathSegments.last
                               : f.path.split('/').last;
-                          return ListTile(
-                            leading: const Icon(Icons.music_note),
-                            title: Text(name,
-                                maxLines: 2, overflow: TextOverflow.ellipsis),
-                            onTap: () async {
-                              await controller.pickFixedAudioPath(f.path);
-                              if (mounted) Navigator.pop(context);
+                          return Dismissible(
+                            key: ValueKey(f.path),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              color: Colors.red.withOpacity(0.12),
+                              child: const Icon(Icons.delete_forever,
+                                  color: Colors.red),
+                            ),
+                            confirmDismiss: (_) async {
+                              return await showDialog<bool>(
+                                    context: context,
+                                    builder: (_) => AlertDialog(
+                                      title:
+                                          const Text('Supprimer ce fichier ?'),
+                                      content: Text(
+                                          '“$name” sera retiré de la playlist.'),
+                                      actions: [
+                                        TextButton(
+                                            onPressed: () =>
+                                                Navigator.pop(context, false),
+                                            child: const Text('Annuler')),
+                                        FilledButton(
+                                            onPressed: () =>
+                                                Navigator.pop(context, true),
+                                            child: const Text('Supprimer')),
+                                      ],
+                                    ),
+                                  ) ??
+                                  false;
                             },
+                            onDismissed: (_) async {
+                              await controller
+                                  .deleteLocalAudioFileAtPath(f.path);
+                              files = await controller.getLocalAudioFiles();
+                              setModalState(() {});
+                            },
+                            child: ListTile(
+                              leading: const Icon(Icons.music_note),
+                              title: Text(name,
+                                  maxLines: 2, overflow: TextOverflow.ellipsis),
+                              trailing: IconButton(
+                                tooltip: 'Supprimer',
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: () async {
+                                  final bool confirmed = await showDialog<bool>(
+                                        context: context,
+                                        builder: (_) => AlertDialog(
+                                          title: const Text(
+                                              'Supprimer ce fichier ?'),
+                                          content: Text(
+                                              '“$name” sera retiré de la playlist.'),
+                                          actions: [
+                                            TextButton(
+                                                onPressed: () => Navigator.pop(
+                                                    context, false),
+                                                child: const Text('Annuler')),
+                                            FilledButton(
+                                                onPressed: () => Navigator.pop(
+                                                    context, true),
+                                                child: const Text('Supprimer')),
+                                          ],
+                                        ),
+                                      ) ??
+                                      false;
+                                  if (confirmed) {
+                                    await controller
+                                        .deleteLocalAudioFileAtPath(f.path);
+                                    files =
+                                        await controller.getLocalAudioFiles();
+                                    setModalState(() {});
+                                  }
+                                },
+                              ),
+                              onTap: () async {
+                                await controller.pickFixedAudioPath(f.path);
+                                if (mounted) Navigator.pop(context);
+                              },
+                            ),
                           );
                         },
                       ),

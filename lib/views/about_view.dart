@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AboutView extends StatelessWidget {
   const AboutView({super.key});
+
+  static final Uri _djamoUri = Uri.parse('https://pay.djamo.com/h1eya');
 
   @override
   Widget build(BuildContext context) {
@@ -59,12 +62,33 @@ class AboutView extends StatelessWidget {
                   'Yirah est un projet personnel, développé par un chrétien lambda.',
                   style: Theme.of(context).textTheme.bodyMedium),
               const SizedBox(height: 24),
-              OutlinedButton.icon(
-                onPressed: () => _openFeedbackSheet(context),
-                icon: const Icon(Icons.feedback_outlined),
-                label: const Text('Laisser un feedback'),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openFeedbackSheet(context),
+                      icon: const Icon(Icons.feedback_outlined),
+                      label: const Text('Laisser un feedback'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    tooltip: 'Partager',
+                    onPressed: _shareApp,
+                    icon: const Icon(Icons.share_rounded),
+                  ),
+                ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.center,
+                child: OutlinedButton.icon(
+                  onPressed: _openDjamo,
+                  icon: const Icon(Icons.local_cafe_outlined),
+                  label: const Text("M'offrir un café ☕️"),
+                ),
+              ),
+              const SizedBox(height: 12),
             ],
           ),
         ),
@@ -74,7 +98,7 @@ class AboutView extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
           child: Text(
-            'Dieu t’aime',
+            'Jesus t’aime',
             textAlign: TextAlign.center,
             style: Theme.of(context)
                 .textTheme
@@ -84,6 +108,19 @@ class AboutView extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void _shareApp() {
+    const String link = 'https://github.com/sminth/yirah-une-minute-avec-Dieu';
+    const String text =
+        "Découvre Yirah – Une minute avec Dieu. Prends un instant pour te recentrer et parler à Papa.\n\nTélécharge/infos: $link";
+    Share.share(text);
+  }
+
+  Future<void> _openDjamo() async {
+    if (await canLaunchUrl(_djamoUri)) {
+      await launchUrl(_djamoUri, mode: LaunchMode.externalApplication);
+    }
   }
 
   void _openFeedbackSheet(BuildContext context) {
@@ -140,15 +177,16 @@ class AboutView extends StatelessWidget {
                       final String body = controller.text.trim().isEmpty
                           ? 'Vos idées / suggestions / pistes d’amélioration :'
                           : controller.text.trim();
-                      final Uri mailto = Uri(
-                        scheme: 'mailto',
-                        path: 'virtus225one@gmail.com',
-                        query: Uri.encodeQueryComponent(
-                          'subject=Feedback Yirah&body=$body',
-                        ),
-                      );
-                      if (await canLaunchUrl(mailto)) {
-                        await launchUrl(mailto);
+                      const String subject = 'Feedback Yirah';
+                      final String mailto =
+                          'mailto:virtus225one@gmail.com?subject=' +
+                              Uri.encodeComponent(subject) +
+                              '&body=' +
+                              Uri.encodeComponent(body);
+                      final Uri mailUri = Uri.parse(mailto);
+                      if (await canLaunchUrl(mailUri)) {
+                        await launchUrl(mailUri,
+                            mode: LaunchMode.externalApplication);
                       }
                       if (context.mounted) Navigator.pop(context);
                     },
